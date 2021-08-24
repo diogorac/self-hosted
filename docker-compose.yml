@@ -292,7 +292,7 @@ services:
     - --entrypoints.web.http.redirections.entrypoint.to=websecure
     - --entrypoints.web.http.redirections.entrypoint.scheme=https
     container_name: traefik
-    image: traefik:v2.4.9
+    image: traefik:v2.5.1
     labels:
       traefik.http.middlewares.redirect-to-https.redirectscheme.scheme: https
       traefik.http.routers.redirs.entrypoints: web
@@ -331,7 +331,7 @@ services:
     sysctls:
       net.ipv4.conf.all.rp_filter: '2'
     volumes:
-    - ./start_vpn.sh:/usr/bin/start_vpn.sh:rw
+    - ./scripts/start_vpn.sh:/usr/bin/start_vpn.sh:rw
   wallabag:
     image: wallabag/wallabag:latest
     container_name: wallabag
@@ -384,8 +384,8 @@ services:
       traefik:
         condition: service_started
     environment:
-      PASSWORD: ${DAV_USER}
-      USERNAME: ${DAV_PASS}
+      PASSWORD: ${DAV_PASS}
+      USERNAME: ${DAV_USER}
     image: bytemark/webdav
     labels:
       traefik.enable: "true"
