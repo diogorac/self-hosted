@@ -1,0 +1,17 @@
+# Dynamic configuration
+tls:
+  certificates:
+    - certFile: /certs/cert.crt
+      keyFile: /certs/key.key
+      stores:
+        - default
+  options:
+    clientauth:
+      sniStrict: true
+      clientAuth:
+        caFiles:
+          - certs/root_ca.crt
+        clientAuthType: RequireAndVerifyClientCert
+    davonly:
+      clientAuth:
+        clientAuthType: NoClientCert

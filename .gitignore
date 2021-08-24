@@ -1,0 +1,9 @@
+.env
+letsencrypt/
+certs/
+data/
+backup/
+dav/
+feetter/
+searx/
+configs/nitter.conf

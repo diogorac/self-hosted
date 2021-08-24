@@ -1,0 +1,357 @@
+services:
+  feetter:
+    container_name: feetter
+    depends_on:
+      traefik:
+        condition: service_started
+    environment:
+      NITTER_HOSTNAME: ${NITTER_HOSTNAME}
+    image: diogorac/feetter
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.feetter.entrypoints: websecure
+      traefik.http.routers.feetter.rule: Host(`${FEETTER_HOSTNAME}`)
+      traefik.http.routers.feetter.tls.options: clientauth@file
+      traefik.http.services.feetter.loadbalancer.server.port: '1337'
+    network_mode: service:vpn
+    restart: always
+    volumes:
+    - ./feetter:/app/data:rw
+  invidious:
+    container_name: invidious
+    depends_on:
+      postgres:
+        condition: service_started
+      vpn:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 256M
+    environment:
+      INVIDIOUS_CONFIG: "channel_threads: 1\ncheck_tables: true\nfeed_threads: 1\n\
+        db:\n  user: kemal\n  password: kemal\n  host: localhost\n  port: 5432\n \
+        \ dbname: invidious\nfull_refresh: false\nhttps_only: false\ndecrypt_polling:\
+        \ false\ndomain:\n"
+    image: diogorac/invidious
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.invidious.entrypoints: websecure
+      traefik.http.routers.invidious.rule: Host(`${INVIDIOUS_HOSTNAME}`)
+      traefik.http.routers.invidious.tls.options: clientauth@file
+      traefik.http.services.invidious.loadbalancer.server.port: '3000'
+    logging:
+      driver: none
+    network_mode: service:vpn
+    restart: unless-stopped
+  morty:
+    cap_drop:
+    - ALL
+    command: -timeout 6
+    container_name: morty
+    depends_on:
+      traefik:
+        condition: service_started
+      vpn:
+        condition: service_started
+    environment:
+      MORTY_ADDRESS: 0.0.0.0:3002
+      MORTY_KEY: ${MORTY_KEY}
+    image: diogorac/morty
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.morty.entrypoints: websecure
+      traefik.http.routers.morty.rule: Host(`${MORTY_HOSTNAME}`)
+      traefik.http.routers.morty.tls.options: clientauth@file
+      traefik.http.services.morty.loadbalancer.server.port: '3002'
+    logging:
+      driver: none
+    network_mode: service:vpn
+    read_only: true
+    restart: always
+  nextcloud:
+    container_name: nextcloud
+    depends_on:
+      nextcloud_db:
+        condition: service_started
+      no_vpn_redis:
+        condition: service_started
+    environment:
+      NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD}
+      NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER}
+      NEXTCLOUD_TRUSTED_DOMAINS: ${NEXTCLOUD_HOSTNAME}
+      POSTGRES_DB: nextcloud_db
+      POSTGRES_HOST: nextcloud
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: nextcloud
+      REDIS_HOST: no_vpn_redis
+      TRUSTED_PROXIES: 172.16.0.0/12
+    image: nextcloud:apache
+    labels:
+      traefik.enable: "true"
+      traefik.http.middlewares.nextcloud.headers.browserXSSFilter: "true"
+      traefik.http.middlewares.nextcloud.headers.contentTypeNosniff: "true"
+      traefik.http.middlewares.nextcloud.headers.stsIncludeSubdomains: "true"
+      traefik.http.middlewares.nextcloud.headers.stsPreload: "true"
+      traefik.http.middlewares.nextcloud.headers.stsSeconds: '155520011'
+      traefik.http.middlewares.nextcloud_redirect.redirectregex.permanent: "true"
+      traefik.http.middlewares.nextcloud_redirect.redirectregex.regex: /.well-known/(card|cal)dav
+      traefik.http.middlewares.nextcloud_redirect.redirectregex.replacement: /remote.php/dav/
+      traefik.http.routers.nextcloud.entrypoints: websecure
+      traefik.http.routers.nextcloud.middlewares: nextcloud,nextcloud_redirect
+      traefik.http.routers.nextcloud.rule: Host(`${NEXTCLOUD_HOSTNAME}`)
+      traefik.http.routers.nextcloud.tls.options: clientauth@file
+    logging:
+      driver: none
+    restart: unless-stopped
+    volumes:
+    - nextcloud:/var/www/html:rw
+  nextcloud_db:
+    container_name: nextcloud_db
+    environment:
+      POSTGRES_DB: nextcloud
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: nextcloud
+    healthcheck:
+      interval: 10s
+      retries: 5
+      test:
+      - CMD-SHELL
+      - pg_isready -U nextcloud
+      timeout: 5s
+    image: postgres:alpine
+    logging:
+      driver: none
+    restart: unless-stopped
+    volumes:
+    - nextcloud_db:/var/lib/postgresql/data:rw
+  nitter:
+    container_name: nitter
+    depends_on:
+      redis:
+        condition: service_started
+      vpn:
+        condition: service_started
+    environment:
+      FEETTER_HOST: http://localhost:1337
+      FEETTER_HOSTNAME: "https://${FEETTER_HOSTNAME}"
+      FEETTER_USER: ${FEETTER_USER}
+    healthcheck:
+      interval: 1m
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:8080
+      timeout: 3s
+    image: diogorac/nitter:latest
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.nitter.entrypoints: websecure
+      traefik.http.routers.nitter.rule: Host(`${NITTER_HOSTNAME}`)
+      traefik.http.routers.nitter.tls.options: clientauth@file
+      traefik.http.services.nitter.loadbalancer.server.port: '8081'
+    logging:
+      driver: none
+    network_mode: service:vpn
+    restart: unless-stopped
+    volumes:
+    - ./configs/nitter.conf:/src/nitter.conf:rw
+  postgres:
+    container_name: postgres
+    environment:
+      POSTGRES_DB: invidious
+      POSTGRES_PASSWORD: kemal
+      POSTGRES_USER: kemal
+    healthcheck:
+      test:
+      - CMD
+      - pg_isready
+      - -U
+      - postgres
+    image: postgres:10
+    logging:
+      driver: none
+    network_mode: service:vpn
+    restart: unless-stopped
+    volumes:
+    - postgresdata:/var/lib/postgresql/data:rw
+  redis:
+    container_name: redis
+    healthcheck:
+      interval: 1s
+      retries: 30
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      timeout: 3s
+    image: redis:alpine
+    logging:
+      driver: none
+    network_mode: service:vpn
+    restart: unless-stopped
+    volumes:
+    - redis-data:/var/lib/redis:rw
+  no_vpn_redis:
+    container_name: no_vpn_redis
+    healthcheck:
+      interval: 1s
+      retries: 30
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      timeout: 3s
+    image: redis:alpine
+    logging:
+      driver: none
+    restart: unless-stopped
+    volumes:
+    - redis-data:/var/lib/redis:rw
+  searx:
+    cap_add:
+    - CHOWN
+    - SETGID
+    - SETUID
+    - DAC_OVERRIDE
+    cap_drop:
+    - ALL
+    command: ''
+    container_name: searx
+    depends_on:
+      morty:
+        condition: service_started
+    environment:
+      BASE_URL: https://${SEARX_HOSTNAME}/
+      BIND_ADDRESS: 0.0.0.0:8080
+      MORTY_KEY: ${MORTY_KEY}
+      MORTY_URL: https://${MORTY_HOSTNAME}/
+    image: searx/searx:latest
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.searx.entrypoints: websecure
+      traefik.http.routers.searx.rule: Host(`${SEARX_HOSTNAME}`)
+      traefik.http.routers.searx.tls.options: clientauth@file
+      traefik.http.services.searx.loadbalancer.server.port: '8080'
+    logging:
+      driver: none
+    network_mode: service:vpn
+    restart: always
+    volumes:
+    - ./searx:/etc/searx:rw
+  teddit:
+    container_name: teddit
+    depends_on:
+      redis:
+        condition: service_started
+      vpn:
+        condition: service_started
+    environment:
+      DOMAIN: ${TEDDIT_HOSTNAME}
+      HTTPS_ENABLED: "false"
+      NONSSL_PORT: '8082'
+      REDIRECT_HTTP_TO_HTTPS: "false"
+      REDIRECT_WWW: "false"
+      REDIS_HOST: localhost
+      THEME: dark
+    healthcheck:
+      interval: 1m
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:8082/about
+      timeout: 3s
+    image: teddit/teddit:latest
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.teddit.entrypoints: websecure
+      traefik.http.routers.teddit.rule: Host(`${TEDDIT_HOSTNAME}`)
+      traefik.http.routers.teddit.tls.options: clientauth@file
+      traefik.http.services.teddit.loadbalancer.server.port: '8082'
+    logging:
+      driver: none
+    network_mode: service:vpn
+    restart: unless-stopped
+  traefik:
+    command:
+    - --providers.file=true
+    - --providers.docker=true
+    - --providers.docker.exposedbydefault=false
+    - --providers.file.filename=/dyn_traefik.yaml
+    - --entrypoints.websecure.address=:443
+    - --entrypoints.web.address=:80
+    container_name: traefik
+    image: traefik:v2.4.9
+    labels:
+      traefik.http.middlewares.redirect-to-https.redirectscheme.scheme: https
+      traefik.http.routers.redirs.entrypoints: web
+      traefik.http.routers.redirs.middlewares: redirect-to-https
+      traefik.http.routers.redirs.rule: hostregexp(`{host:.+}`)
+    logging:
+      driver: none
+    ports:
+    - published: 443
+      target: 443
+    - published: 80
+      target: 80
+    restart: unless-stopped
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    - ./certs:/certs:rw
+    - ./configs/dyn_traefik.yaml:/dyn_traefik.yaml:ro
+  vpn:
+    cap_add:
+    - NET_ADMIN
+    - SYS_MODULE
+    container_name: vpn
+    devices:
+    - /dev/net/tun
+    dns:
+    - 103.86.96.100
+    - 103.86.99.100
+    environment:
+      GROUPID: '0'
+      PASS: ${NORDVPN_PASS}
+      TECHNOLOGY: NordLynx
+      USER: ${NORDVPN_USER}
+    image: ghcr.io/bubuntux/nordvpn
+    logging:
+      driver: none
+    sysctls:
+      net.ipv4.conf.all.rp_filter: '2'
+    volumes:
+    - ./start_vpn.sh:/usr/bin/start_vpn.sh:rw
+  webdav:
+    container_name: webdav
+    depends_on:
+      traefik:
+        condition: service_started
+    environment:
+      PASSWORD: ${DAV_USER}
+      USERNAME: ${DAV_PASS}
+    image: bytemark/webdav
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.webdav.entrypoints: websecure
+      traefik.http.routers.webdav.rule: Host(`${DAV_HOSTNAME}`)
+      traefik.http.routers.webdav.tls.options: davonly@file
+      traefik.http.services.webdav.loadbalancer.server.port: '80'
+    logging:
+      driver: none
+    restart: always
+    volumes:
+    - ./dav:/var/lib/dav:rw
+version: '3.5'
+volumes:
+  nextcloud: {}
+  nextcloud_db: {}
+  postgresdata: {}
+  redis-data: {}
+
