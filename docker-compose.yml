@@ -13,6 +13,8 @@ services:
       traefik.http.routers.feetter.rule: Host(`${FEETTER_HOSTNAME}`)
       traefik.http.routers.feetter.tls.options: clientauth@file
       traefik.http.services.feetter.loadbalancer.server.port: '1337'
+    logging:
+      driver: none
     network_mode: service:vpn
     restart: always
     volumes:
@@ -287,6 +289,8 @@ services:
     - --providers.file.filename=/dyn_traefik.yaml
     - --entrypoints.websecure.address=:443
     - --entrypoints.web.address=:80
+    - --entrypoints.web.http.redirections.entrypoint.to=websecure
+    - --entrypoints.web.http.redirections.entrypoint.scheme=https
     container_name: traefik
     image: traefik:v2.4.9
     labels:
@@ -328,6 +332,52 @@ services:
       net.ipv4.conf.all.rp_filter: '2'
     volumes:
     - ./start_vpn.sh:/usr/bin/start_vpn.sh:rw
+  wallabag:
+    image: wallabag/wallabag:latest
+    container_name: wallabag
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${WALLABAG_DB_ROOT_PASS}
+      SYMFONY__ENV__DATABASE_DRIVER: pdo_mysql
+      SYMFONY__ENV__DATABASE_HOST: wallabag_db
+      SYMFONY__ENV__DATABASE_PORT: 3306
+      SYMFONY__ENV__DATABASE_NAME: wallabag
+      SYMFONY__ENV__DATABASE_USER: wallabag
+      SYMFONY__ENV__DATABASE_PASSWORD: ${WALLABAG_DB_PASS}
+      SYMFONY__ENV__DATABASE_CHARSET: utf8mb4
+      SYMFONY__ENV__MAILER_HOST: 127.0.0.1
+      SYMFONY__ENV__MAILER_USER: ~
+      SYMFONY__ENV__MAILER_PASSWORD: ~
+      SYMFONY__ENV__FROM_EMAIL: wallabag@example.com
+      SYMFONY__ENV__DOMAIN_NAME: ${WALLABAG_URL}
+      SYMFONY__ENV__SERVER_NAME: "Wallabag"
+    volumes:
+      - wallabag:/var/www/wallabag/web/assets/images
+    healthcheck:
+      test: ["CMD", "wget" ,"--no-verbose", "--tries=1", "--spider", "http://localhost"]
+      interval: 1m
+      timeout: 3s
+    depends_on:
+      - wallabag_db
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.wallabag.entrypoints: websecure
+      traefik.http.routers.wallabag.rule: Host(`${WALLABAG_HOSTNAME}`)
+      traefik.http.routers.wallabag.tls.options: davonly@file
+      traefik.http.services.wallabag.loadbalancer.server.port: '80'
+    logging:
+      driver: none
+  wallabag_db:
+    image: mariadb:latest
+    container_name: wallabag_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${WALLABAG_DB_ROOT_PASS}
+    healthcheck:
+      test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
   webdav:
     container_name: webdav
     depends_on:
@@ -354,4 +404,5 @@ volumes:
   nextcloud_db: {}
   postgresdata: {}
   redis-data: {}
+  wallabag: {}
 
